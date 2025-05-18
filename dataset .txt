@@ -1,0 +1,75 @@
+import pandas as pd
+import numpy as np
+import re
+import tensorflow as tf
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout, Bidirectional
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report
+
+# 1. Load Dataset (Assuming CSV with columns: 'text' and 'label')
+data = pd.read_csv('fake_news_data.csv')
+
+# 2. Data Preprocessing
+def clean_text(text):
+    text = re.sub(r'<.*?>', '', text)  # Remove HTML tags
+    text = re.sub(r'[^a-zA-Z]', ' ', text)  # Remove non-letter characters
+    text = text.lower()  # Lowercase
+    text = re.sub(r'\s+', ' ', text).strip()  # Remove extra spaces
+    return text
+
+data['cleaned_text'] = data['text'].apply(clean_text)
+
+# 3. Tokenization and Padding
+max_words = 10000
+max_len = 200
+
+tokenizer = Tokenizer(num_words=max_words, oov_token='<OOV>')
+tokenizer.fit_on_texts(data['cleaned_text'])
+sequences = tokenizer.texts_to_sequences(data['cleaned_text'])
+padded_sequences = pad_sequences(sequences, maxlen=max_len, padding='post', truncating='post')
+
+# 4. Label Encoding
+labels = data['label'].map({'real': 0, 'fake': 1}).values
+
+# 5. Train-Test Split
+X_train, X_test, y_train, y_test = train_test_split(padded_sequences, labels, test_size=0.2, random_state=42)
+
+# 6. Model Building
+model = Sequential([
+    Embedding(input_dim=max_words, output_dim=64, input_length=max_len),
+    Bidirectional(LSTM(64, return_sequences=True)),
+    Dropout(0.5),
+    Bidirectional(LSTM(32)),
+    Dense(64, activation='relu'),
+    Dropout(0.5),
+    Dense(1, activation='sigmoid')
+])
+
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+# 7. Model Training
+history = model.fit(X_train, y_train, epochs=5, batch_size=64, validation_split=0.1)
+
+# 8. Evaluation
+y_pred_prob = model.predict(X_test)
+y_pred = (y_pred_prob > 0.5).astype(int)
+
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print(classification_report(y_test, y_pred, target_names=['Real', 'Fake']))
+
+# 9. Predict Function
+def predict_fake_news(text):
+    cleaned = clean_text(text)
+    seq = tokenizer.texts_to_sequences([cleaned])
+    padded = pad_sequences(seq, maxlen=max_len, padding='post')
+    pred_prob = model.predict(padded)[0][0]
+    label = 'Fake' if pred_prob > 0.5 else 'Real'
+    return label, pred_prob
+
+# Example Prediction
+sample_text = "Breaking news: Scientists discover a new planet in our solar system!"
+label, confidence = predict_fake_news(sample_text)
+print(f"Prediction: {label} with confidence {confidence:.2f}")
